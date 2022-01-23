@@ -75,9 +75,9 @@ func RestartNode(c *Config, ps *pb.PersistentState) Node {
 	return &n
 }
 
-// node is the canonical implementation of the Node interface. It provides a
+// PaxosNode is the canonical implementation of the Node interface. It provides a
 // thread-safe handle around the thread-unsafe paxos object.
-type node struct {
+type PaxosNode struct {
 	propc  chan pb.ClientUpdate
 	msgc   chan pb.Message
 	readyc chan Ready
@@ -85,12 +85,13 @@ type node struct {
 	tickc  chan struct{}
 	done   chan struct{}
 	stop   chan struct{}
+	Paxos  *paxos
 
 	logger Logger
 }
 
-func makeNode() node {
-	return node{
+func makeNode() PaxosNode {
+	return PaxosNode{
 		propc:  make(chan pb.ClientUpdate),
 		msgc:   make(chan pb.Message),
 		readyc: make(chan Ready),
@@ -101,10 +102,12 @@ func makeNode() node {
 		tickc: make(chan struct{}, 128),
 		done:  make(chan struct{}),
 		stop:  make(chan struct{}),
+		Paxos: nil,
 	}
 }
 
-func (n *node) run(p *paxos) {
+func (n *PaxosNode) run(p *paxos) {
+	n.Paxos = p
 	for {
 		var readyc chan Ready
 		rd := makeReady(p)
@@ -132,7 +135,7 @@ func (n *node) run(p *paxos) {
 }
 
 // Tick implements the Node interface.
-func (n *node) Tick() {
+func (n *PaxosNode) Tick() {
 	select {
 	case n.tickc <- struct{}{}:
 	case <-n.done:
@@ -142,7 +145,7 @@ func (n *node) Tick() {
 }
 
 // Propose implements the Node interface.
-func (n *node) Propose(ctx context.Context, update pb.ClientUpdate) error {
+func (n *PaxosNode) Propose(ctx context.Context, update pb.ClientUpdate) error {
 	select {
 	case n.propc <- update:
 		return nil
@@ -154,7 +157,7 @@ func (n *node) Propose(ctx context.Context, update pb.ClientUpdate) error {
 }
 
 // Step implements the Node interface.
-func (n *node) Step(ctx context.Context, m pb.Message) error {
+func (n *PaxosNode) Step(ctx context.Context, m pb.Message) error {
 	select {
 	case n.msgc <- m:
 		return nil
@@ -166,7 +169,7 @@ func (n *node) Step(ctx context.Context, m pb.Message) error {
 }
 
 // Ready implements the Node interface.
-func (n *node) Ready() <-chan Ready {
+func (n *PaxosNode) Ready() <-chan Ready {
 	return n.readyc
 }
 
@@ -179,12 +182,12 @@ func makeReady(p *paxos) Ready {
 }
 
 // State implements the Node interface.
-func (n *node) State() NodeState {
+func (n *PaxosNode) State() NodeState {
 	return <-n.statec
 }
 
 // Stop implements the Node interface.
-func (n *node) Stop() {
+func (n *PaxosNode) Stop() {
 	select {
 	case n.stop <- struct{}{}:
 		// Not already stopped, so trigger it.

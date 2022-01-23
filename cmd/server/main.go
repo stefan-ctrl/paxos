@@ -76,7 +76,7 @@ func parseHostfile() (parsedHostfile, error) {
 	for _, addr := range addrs {
 		if (hostIDSet && addr.Idx == *hostID) || (!hostIDSet && addr.Host == myHostname) {
 			if hostIDSet && addr.Host != myHostname {
-				return ph, errors.Errorf("id flag %d is not the hostname of this host", *hostID)
+				return ph, errors.Errorf("id flag %d is not the hostname %s of this host", *hostID, myHostname)
 			}
 			if ph.localInfoSet() {
 				return ph, errors.Errorf("local host information set twice in hostfile. " +

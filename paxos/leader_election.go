@@ -7,6 +7,11 @@ import (
 func (p *paxos) shiftToLeaderElection(view uint64) {
 	// Clear out data structures used in the previous view.
 	p.state = StateLeaderElection
+	PrintTiming(ELECTION_START)
+	if p.FirstElection {
+		p.FirstElection = false
+	}
+	p.ElectionFinished = false
 	p.viewChanges = make(map[uint64]*pb.ViewChange)
 	p.prepare = nil
 	p.prepareOKs = make(map[uint64]*pb.PrepareOK)
@@ -49,19 +54,26 @@ func (p *paxos) onViewChange(vc *pb.ViewChange) {
 }
 
 func (p *paxos) applyViewChange(vc *pb.ViewChange) {
+	PrintTiming(LEADER_ELECTED)
 	switch {
 	case vc.AttemptedView > p.lastAttempted:
 		p.logger.Debugf("found ViewChange with greater view: %v", vc)
 		p.shiftToLeaderElection(vc.AttemptedView)
 		p.updateViewChangeState(vc)
+		p.ElectionFinished = true
+		p.IsLeader = false
 	case vc.AttemptedView == p.lastAttempted:
 		p.updateViewChangeState(vc)
 		if p.preinstallReady(vc.AttemptedView) {
 			p.progressTimer.reset()
 			if p.amILeaderOfView(vc.AttemptedView) {
+				p.IsLeader = true
 				p.shiftToPreparePhase()
+			} else {
+				p.IsLeader = false
 			}
 		}
+		p.ElectionFinished = true
 	case vc.AttemptedView < p.lastAttempted:
 		// Ignore ViewChanges from previous views.
 	default:

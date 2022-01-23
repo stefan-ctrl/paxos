@@ -2,6 +2,7 @@ package paxos
 
 import (
 	"container/list"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -171,6 +172,14 @@ type paxos struct {
 	// rand holds the paxos instance's local Rand object. This allows us to avoid
 	// using the synchronized global Rand object.
 	rand *rand.Rand
+
+	//some timing stuff for leader election evaluation
+	Unstable         chan struct{}
+	FirstElection    bool
+	NewLeader        bool
+	T2Started        bool
+	ElectionFinished bool
+	IsLeader         bool
 }
 
 func newPaxos(c *Config) *paxos {
@@ -178,15 +187,21 @@ func newPaxos(c *Config) *paxos {
 		panic(err.Error())
 	}
 	p := &paxos{
-		id:             c.ID,
-		nodeCount:      c.NodeCount,
-		logger:         c.Logger,
-		state:          StateLeaderElection,
-		globalHistory:  btree.New(32 /* degree */),
-		rand:           rand.New(rand.NewSource(c.RandSeed)),
-		lastExecuted:   make(map[uint64]uint64),
-		lastEnqueued:   make(map[uint64]uint64),
-		pendingUpdates: make(map[uint64]*pb.ClientUpdate),
+		id:               c.ID,
+		nodeCount:        c.NodeCount,
+		logger:           c.Logger,
+		state:            StateLeaderElection,
+		globalHistory:    btree.New(32 /* degree */),
+		rand:             rand.New(rand.NewSource(c.RandSeed)),
+		lastExecuted:     make(map[uint64]uint64),
+		lastEnqueued:     make(map[uint64]uint64),
+		pendingUpdates:   make(map[uint64]*pb.ClientUpdate),
+		Unstable:         make(chan struct{}),
+		FirstElection:    true,
+		NewLeader:        false,
+		T2Started:        false,
+		ElectionFinished: false,
+		IsLeader:         false,
 	}
 	p.initTimers()
 	p.shiftToLeaderElection(1)
@@ -263,7 +278,10 @@ func (p *paxos) Step(m pb.Message) {
 }
 
 func (p *paxos) leaderOfView(view uint64) uint64 {
-	return view % p.nodeCount
+	result := view % p.nodeCount
+	msg := fmt.Sprintf("leader of view %d", result)
+	Debug(msg)
+	return result
 }
 
 func (p *paxos) amILeaderOfView(view uint64) bool {
